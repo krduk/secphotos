@@ -711,6 +711,16 @@ input:checked + .slider:before {
   animation: spin 1s linear infinite;
 }
 
+.upload-item.converting .upload-status-icon {
+  color: #a855f7;
+  animation: spin 1.5s linear infinite;
+}
+
+.upload-item.converting .progress-bar {
+  background: linear-gradient(90deg, #a855f7 0%, #d946ef 100%);
+  width: 100%;
+}
+
 .upload-item.success .upload-status-icon {
   background: rgba(16, 185, 129, 0.1);
   color: var(--success);

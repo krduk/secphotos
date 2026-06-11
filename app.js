@@ -564,38 +564,79 @@ function getFormattedTimestamp() {
 }
 
 // Queue an item, construct its UI card, and start the upload (or save to queue)
-async function queueUpload(file) {
-  const timestamp = getFormattedTimestamp();
-  const fileExt = file.name.split('.').pop() || (file.type.includes('video') ? 'mp4' : 'jpg');
+// HEIC画像をJPEGに変換する関数
+async function convertHeicToJpeg(file) {
+  const isHeic = file.name.toLowerCase().endsWith('.heic') || 
+                 file.name.toLowerCase().endsWith('.heif') || 
+                 file.type === 'image/heic' || 
+                 file.type === 'image/heif';
+                 
+  if (!isHeic) return file;
   
-  // Clean target filename to be descriptive
-  const typeLabel = file.type.includes('video') ? 'video' : 'photo';
-  const customFileName = `${typeLabel}_${timestamp}.${fileExt}`;
+  if (typeof heic2any === 'undefined') {
+    console.warn('heic2any library is not loaded. Uploading HEIC file directly.');
+    return file;
+  }
+  
+  try {
+    console.log('Converting HEIC to JPEG:', file.name);
+    const jpegBlob = await heic2any({
+      blob: file,
+      toType: 'image/jpeg',
+      quality: 0.85
+    });
+    
+    const resultBlob = Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
+    const newName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+    
+    return new File([resultBlob], newName, {
+      type: 'image/jpeg',
+      lastModified: file.lastModified || Date.now()
+    });
+  } catch (error) {
+    console.error('HEIC to JPEG conversion failed:', error);
+    return file;
+  }
+}
+
+// Queue an item, construct its UI card, and start the upload (or save to queue)
+async function queueUpload(originalFile) {
+  const timestamp = getFormattedTimestamp();
+  
+  const isHeic = originalFile.name.toLowerCase().endsWith('.heic') || 
+                 originalFile.name.toLowerCase().endsWith('.heif') || 
+                 originalFile.type === 'image/heic' || 
+                 originalFile.type === 'image/heif';
   
   const itemId = 'upload_' + Math.random().toString(36).substr(2, 9);
   
   // 1. Create UI Item
+  const initialStatus = isHeic ? 'converting' : (state.queueMode ? 'pending' : 'uploading');
   const uploadItem = document.createElement('div');
-  const initialStatus = state.queueMode ? 'pending' : 'uploading';
   uploadItem.className = `upload-item glass ${initialStatus}`;
   uploadItem.id = itemId;
   
-  // Generate preview thumbnail if it's an image
-  let thumbnailHTML = `<div class="upload-thumbnail"><i class="fa-solid ${file.type.includes('video') ? 'fa-video' : 'fa-image'}"></i></div>`;
-  if (file.type.startsWith('image/')) {
-    const objectUrl = URL.createObjectURL(file);
+  let thumbnailHTML = `<div class="upload-thumbnail"><i class="fa-solid ${originalFile.type.includes('video') ? 'fa-video' : 'fa-image'}"></i></div>`;
+  if (!isHeic && originalFile.type.startsWith('image/')) {
+    const objectUrl = URL.createObjectURL(originalFile);
     thumbnailHTML = `<img src="${objectUrl}" class="upload-thumbnail" alt="preview" onload="URL.revokeObjectURL('${objectUrl}')">`;
   }
   
-  const percentText = state.queueMode ? '一時保存済み' : '0%';
-  const statusIconHTML = state.queueMode ? '<i class="fa-solid fa-box-archive"></i>' : '<i class="fa-solid fa-spinner"></i>';
+  const percentText = isHeic ? 'JPEG変換中...' : (state.queueMode ? '一時保存済み' : '0%');
+  const statusIconHTML = isHeic ? '<i class="fa-solid fa-arrows-rotate fa-spin"></i>' : (state.queueMode ? '<i class="fa-solid fa-box-archive"></i>' : '<i class="fa-solid fa-spinner"></i>');
+  
+  let fileExt = originalFile.name.split('.').pop() || (originalFile.type.includes('video') ? 'mp4' : 'jpg');
+  if (isHeic) fileExt = 'jpg';
+  
+  const typeLabel = originalFile.type.includes('video') ? 'video' : 'photo';
+  const customFileName = `${typeLabel}_${timestamp}.${fileExt}`;
   
   uploadItem.innerHTML = `
     ${thumbnailHTML}
     <div class="upload-details">
       <span class="upload-title">${customFileName}</span>
       <div class="upload-meta">
-        <span class="upload-size">${formatBytes(file.size)}</span>
+        <span class="upload-size">${formatBytes(originalFile.size)}</span>
         <span class="upload-percent">${percentText}</span>
       </div>
       <div class="progress-container">
@@ -607,8 +648,41 @@ async function queueUpload(file) {
     </div>
   `;
   
-  // Insert at the top of the upload list
   elements.uploadList.insertBefore(uploadItem, elements.uploadList.firstChild);
+  
+  let file = originalFile;
+  if (isHeic) {
+    file = await convertHeicToJpeg(originalFile);
+    
+    // Update thumbnail with converted image
+    const convertedItem = document.getElementById(itemId);
+    if (convertedItem) {
+      if (file.type.startsWith('image/')) {
+        const img = document.createElement('img');
+        img.className = 'upload-thumbnail';
+        img.alt = 'preview';
+        const objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+        img.onload = () => URL.revokeObjectURL(objectUrl);
+        
+        const oldThumb = convertedItem.querySelector('.upload-thumbnail');
+        if (oldThumb) oldThumb.replaceWith(img);
+      }
+      
+      convertedItem.className = `upload-item glass ${state.queueMode ? 'pending' : 'uploading'}`;
+      
+      const percentDisplay = convertedItem.querySelector('.upload-percent');
+      if (percentDisplay) percentDisplay.textContent = state.queueMode ? '一時保存済み' : '0%';
+      
+      const statusIcon = convertedItem.querySelector('.upload-status-icon');
+      if (statusIcon) {
+        statusIcon.innerHTML = state.queueMode ? '<i class="fa-solid fa-box-archive"></i>' : '<i class="fa-solid fa-spinner"></i>';
+      }
+      
+      const sizeDisplay = convertedItem.querySelector('.upload-size');
+      if (sizeDisplay) sizeDisplay.textContent = formatBytes(file.size);
+    }
+  }
   
   // 2. Save to database first for data protection
   try {
@@ -626,7 +700,6 @@ async function queueUpload(file) {
   }
   
   try {
-    // Ensure token is still valid before uploading
     if (Date.now() >= state.tokenExpiry) {
       alert('アップロード前にGoogle Driveへの再接続が必要です。認証画面を開きます。');
       connectToGoogle();
@@ -637,7 +710,6 @@ async function queueUpload(file) {
       await verifyFolderAndStart();
     }
     
-    // Choose upload strategy: Multipart (for small files < 5MB) or Resumable (for larger files like videos)
     const threshold = 5 * 1024 * 1024;
     const tagsString = state.presetSelectedTags.join(',');
     
@@ -647,7 +719,6 @@ async function queueUpload(file) {
       await uploadResumable(file, customFileName, itemId, tagsString);
     }
     
-    // Success: remove from local DB cache
     try {
       await deleteFileFromQueue(itemId);
       await updateQueueBar();
