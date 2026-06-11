@@ -9,7 +9,9 @@ let state = {
   folderId: localStorage.getItem('secphotos_folder_id') || '',
   userEmail: localStorage.getItem('secphotos_user_email') || '',
   queueMode: localStorage.getItem('secphotos_queue_mode') === 'true',
-  tokenClient: null
+  tokenClient: null,
+  driveFiles: [],
+  currentViewerBlobUrl: null
 };
 
 // Global DB instance
@@ -42,6 +44,20 @@ const elements = {
   queueCount: document.getElementById('queue-count'),
   queueSize: document.getElementById('queue-size'),
   uploadQueueBtn: document.getElementById('upload-queue-btn'),
+  
+  appNav: document.getElementById('app-nav'),
+  navCaptureBtn: document.getElementById('nav-capture-btn'),
+  navHistoryBtn: document.getElementById('nav-history-btn'),
+  
+  dateFilter: document.getElementById('date-filter'),
+  refreshGalleryBtn: document.getElementById('refresh-gallery-btn'),
+  galleryGrid: document.getElementById('gallery-grid'),
+  
+  viewerModal: document.getElementById('viewer-modal'),
+  viewerCloseBtn: document.getElementById('viewer-close-btn'),
+  viewerMediaWrapper: document.getElementById('viewer-media-wrapper'),
+  viewerFilename: document.getElementById('viewer-filename'),
+  viewerDownloadLink: document.getElementById('viewer-download-link'),
   
   settingsToggleBtn: document.getElementById('settings-toggle-btn'),
   settingsModal: document.getElementById('settings-modal'),
@@ -144,6 +160,36 @@ function setupEventListeners() {
 
   // Queue upload interactions
   elements.uploadQueueBtn.addEventListener('click', uploadAllPending);
+
+  // Navigation tab controls
+  elements.navCaptureBtn.addEventListener('click', () => switchTab('capture'));
+  elements.navHistoryBtn.addEventListener('click', () => switchTab('history'));
+
+  // Gallery interactions
+  elements.refreshGalleryBtn.addEventListener('click', loadGallery);
+  elements.dateFilter.addEventListener('change', handleDateFilterChange);
+
+  // Viewer modal interactions
+  elements.viewerCloseBtn.addEventListener('click', closeMediaViewer);
+  window.addEventListener('click', (e) => {
+    if (e.target === elements.viewerModal) {
+      closeMediaViewer();
+    }
+  });
+}
+
+// Tab Switching
+function switchTab(tab) {
+  if (tab === 'capture') {
+    elements.navCaptureBtn.classList.add('active');
+    elements.navHistoryBtn.classList.remove('active');
+    showView('capture-tab-view');
+  } else if (tab === 'history') {
+    elements.navCaptureBtn.classList.remove('active');
+    elements.navHistoryBtn.classList.add('active');
+    showView('history-tab-view');
+    loadGallery();
+  }
 }
 
 // Route UI state based on settings and login status
@@ -162,7 +208,7 @@ function initUI() {
   } else {
     // We have a token, restore session information
     elements.userEmailDisplay.textContent = state.userEmail || 'サインイン中...';
-    showView('capture-view');
+    showView('capture-tab-view');
     verifyFolderAndStart();
     loadPendingIntoUI();
   }
@@ -176,6 +222,13 @@ function showView(viewId) {
   const activeView = document.getElementById(viewId);
   if (activeView) {
     activeView.classList.add('active');
+  }
+
+  // Show/Hide bottom navigation depending on authentication state
+  if (viewId === 'capture-tab-view' || viewId === 'history-tab-view') {
+    elements.appNav.style.display = 'flex';
+  } else {
+    elements.appNav.style.display = 'none';
   }
 }
 
@@ -211,7 +264,7 @@ function connectToGoogle() {
 
 // Action when authentication succeeds
 async function handleSuccessfulAuthentication() {
-  showView('capture-view');
+  showView('capture-tab-view');
   elements.userEmailDisplay.textContent = '取得中...';
   
   try {
@@ -986,5 +1039,297 @@ async function uploadAllPending() {
     elements.uploadQueueBtn.disabled = false;
     elements.uploadQueueBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 一括送信';
     await updateQueueBar();
+  }
+}
+
+// ==========================================
+// Google Drive Gallery / History Tab Logic
+// ==========================================
+
+// Parse file created date into local date format (YYYY/MM/DD)
+function getLocalDateString(isoString) {
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '不明な日付';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}/${mm}/${dd}`;
+}
+
+// Load gallery contents from Google Drive
+async function loadGallery() {
+  elements.galleryGrid.innerHTML = `
+    <div class="gallery-placeholder">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+      <p>Google Driveからファイル一覧を読み込んでいます...</p>
+    </div>
+  `;
+  
+  try {
+    if (!state.accessToken || Date.now() >= state.tokenExpiry) {
+      alert('閲覧するにはGoogle Driveへの再接続（ログイン）が必要です。');
+      connectToGoogle();
+      return;
+    }
+    
+    if (!state.folderId) {
+      await verifyFolderAndStart();
+    }
+    
+    // Fetch files in the SecPhotos folder
+    const files = await fetchDriveFiles();
+    state.driveFiles = files;
+    
+    // Build date filters
+    populateDateFilters(files);
+    
+    // Render files in Grid
+    renderGalleryGrid('all');
+    
+  } catch (error) {
+    console.error('Failed to load gallery:', error);
+    elements.galleryGrid.innerHTML = `
+      <div class="gallery-placeholder">
+        <i class="fa-solid fa-triangle-exclamation" style="color: var(--danger);"></i>
+        <p>データの読み込みに失敗しました。</p>
+        <button onclick="loadGallery()" class="btn primary-btn compact-btn" style="margin-top: 10px;">再試行</button>
+      </div>
+    `;
+  }
+}
+
+// Fetch file metadata from Google Drive folder
+async function fetchDriveFiles() {
+  const query = `'${state.folderId}' in parents and trashed = false`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name desc&pageSize=200&fields=files(id,name,mimeType,thumbnailLink,webContentLink,createdTime,size)`;
+  
+  const response = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${state.accessToken}` }
+  });
+  
+  if (response.status === 401) {
+    handleUnauthorized();
+    throw new Error('Authentication expired');
+  }
+  
+  if (!response.ok) {
+    throw new Error(`Google API error: ${response.statusText}`);
+  }
+  
+  const data = await response.json();
+  return data.files || [];
+}
+
+// Extract unique dates and populate filter dropdown
+function populateDateFilters(files) {
+  // Clear existing options (except 'all')
+  elements.dateFilter.innerHTML = '<option value="all">すべてのデータ</option>';
+  
+  const dates = new Set();
+  files.forEach(file => {
+    if (file.createdTime) {
+      dates.add(getLocalDateString(file.createdTime));
+    }
+  });
+  
+  // Sort dates descending (newest first)
+  const sortedDates = Array.from(dates).sort((a, b) => b.localeCompare(a));
+  
+  sortedDates.forEach(date => {
+    const option = document.createElement('option');
+    option.value = date;
+    
+    // Format date string for display (e.g. 2026年06月11日)
+    const parts = date.split('/');
+    option.textContent = `${parts[0]}年${parts[1]}月${parts[2]}日`;
+    
+    elements.dateFilter.appendChild(option);
+  });
+}
+
+// Listen to date dropdown changes and refresh grid view
+function handleDateFilterChange(event) {
+  const selectedDate = event.target.value;
+  renderGalleryGrid(selectedDate);
+}
+
+// Render filtered files list into the gallery grid
+function renderGalleryGrid(dateFilterValue) {
+  elements.galleryGrid.innerHTML = '';
+  
+  // Filter files
+  const filteredFiles = state.driveFiles.filter(file => {
+    if (dateFilterValue === 'all') return true;
+    return getLocalDateString(file.createdTime) === dateFilterValue;
+  });
+  
+  if (filteredFiles.length === 0) {
+    elements.galleryGrid.innerHTML = `
+      <div class="gallery-placeholder">
+        <i class="fa-solid fa-box-open"></i>
+        <p>該当するファイルはありません。</p>
+      </div>
+    `;
+    return;
+  }
+  
+  filteredFiles.forEach(file => {
+    const card = document.createElement('div');
+    card.className = 'gallery-card glass';
+    card.addEventListener('click', () => openMediaViewer(file.id, file.name, file.mimeType));
+    
+    // Check file type
+    const isVideo = file.mimeType.startsWith('video/');
+    
+    // Google Drive's thumbnailLink usually works directly (publicly authenticated URL)
+    if (file.thumbnailLink) {
+      // Modify size of thumbnail link if desired (Google default scale parameters)
+      const thumbnailSrc = file.thumbnailLink;
+      
+      const img = document.createElement('img');
+      img.src = thumbnailSrc;
+      img.className = 'gallery-card-img';
+      img.alt = file.name;
+      img.loading = 'lazy';
+      
+      // Fallback in case thumbnail fails loading
+      img.onerror = () => {
+        img.remove();
+        card.appendChild(createCardFallback(file.name, isVideo));
+      };
+      
+      card.appendChild(img);
+    } else {
+      card.appendChild(createCardFallback(file.name, isVideo));
+    }
+    
+    // Add overlay play icon for video files
+    if (isVideo) {
+      const videoIcon = document.createElement('div');
+      videoIcon.className = 'video-overlay-icon';
+      videoIcon.innerHTML = '<i class="fa-solid fa-play"></i>';
+      card.appendChild(videoIcon);
+    }
+    
+    elements.galleryGrid.appendChild(card);
+  });
+}
+
+// Create fallback layout for cards without thumbnails
+function createCardFallback(fileName, isVideo) {
+  const fallback = document.createElement('div');
+  fallback.className = 'gallery-card-fallback';
+  
+  const icon = document.createElement('i');
+  icon.className = `fa-solid ${isVideo ? 'fa-film' : 'fa-file-image'}`;
+  fallback.appendChild(icon);
+  
+  const label = document.createElement('span');
+  label.textContent = fileName;
+  fallback.appendChild(label);
+  
+  return fallback;
+}
+
+// ==========================================
+// Fullscreen Media Viewer Logic
+// ==========================================
+
+// Open Fullscreen Viewer and load full media file
+async function openMediaViewer(fileId, fileName, mimeType) {
+  // Show modal and start loading spinner
+  elements.viewerModal.classList.add('active');
+  elements.viewerFilename.textContent = fileName;
+  
+  elements.viewerMediaWrapper.innerHTML = `
+    <div class="viewer-spinner">
+      <i class="fa-solid fa-circle-notch fa-spin"></i>
+      <p>高画質データを読み込んでいます...</p>
+    </div>
+  `;
+  
+  // Reset download button
+  elements.viewerDownloadLink.removeAttribute('href');
+  elements.viewerDownloadLink.style.pointerEvents = 'none';
+  elements.viewerDownloadLink.style.opacity = '0.5';
+  
+  try {
+    // Fetch media content from Google Drive API with alt=media
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${state.accessToken}` }
+    });
+    
+    if (response.status === 401) {
+      closeMediaViewer();
+      handleUnauthorized();
+      return;
+    }
+    
+    if (!response.ok) {
+      throw new Error(`Failed to load file: ${response.statusText}`);
+    }
+    
+    // Create Blob Object URL
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    state.currentViewerBlobUrl = blobUrl;
+    
+    // Render media content
+    elements.viewerMediaWrapper.innerHTML = '';
+    
+    if (mimeType.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.src = blobUrl;
+      img.alt = fileName;
+      elements.viewerMediaWrapper.appendChild(img);
+    } else if (mimeType.startsWith('video/')) {
+      const video = document.createElement('video');
+      video.src = blobUrl;
+      video.controls = true;
+      video.autoplay = true;
+      elements.viewerMediaWrapper.appendChild(video);
+    } else {
+      // Fallback for unsupported mime types
+      elements.viewerMediaWrapper.innerHTML = `
+        <div class="viewer-spinner">
+          <i class="fa-solid fa-file-arrow-down" style="font-size: 3rem;"></i>
+          <p>このファイル形式はプレビューできません</p>
+        </div>
+      `;
+    }
+    
+    // Configure download link
+    elements.viewerDownloadLink.href = blobUrl;
+    elements.viewerDownloadLink.download = fileName;
+    elements.viewerDownloadLink.style.pointerEvents = 'auto';
+    elements.viewerDownloadLink.style.opacity = '1';
+    
+  } catch (error) {
+    console.error('Failed to load media in viewer:', error);
+    elements.viewerMediaWrapper.innerHTML = `
+      <div class="viewer-spinner">
+        <i class="fa-solid fa-circle-exclamation" style="font-size: 3rem; color: var(--danger);"></i>
+        <p>ファイルのダウンロードに失敗しました。</p>
+      </div>
+    `;
+  }
+}
+
+// Close viewer and clean up Blob URL to prevent memory leaks
+function closeMediaViewer() {
+  elements.viewerModal.classList.remove('active');
+  
+  // Pause any video playing inside viewer
+  const video = elements.viewerMediaWrapper.querySelector('video');
+  if (video) {
+    video.pause();
+  }
+  
+  elements.viewerMediaWrapper.innerHTML = '';
+  
+  // Revoke Blob URL to free up browser memory
+  if (state.currentViewerBlobUrl) {
+    URL.revokeObjectURL(state.currentViewerBlobUrl);
+    state.currentViewerBlobUrl = null;
   }
 }

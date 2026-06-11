@@ -87,8 +87,9 @@
         </div>
       </section>
 
-      <!-- Capture / Upload View (Main application interface) -->
-      <section id="capture-view" class="view">
+      <!-- Main Application Views (Tabs) -->
+      <!-- Tab 1: Capture View -->
+      <section id="capture-tab-view" class="view tab-content">
         <!-- Status Bar -->
         <div class="status-bar glass">
           <div class="status-item">
@@ -152,7 +153,47 @@
         </div>
       </section>
 
+      <!-- Tab 2: Gallery/History View -->
+      <section id="history-tab-view" class="view tab-content">
+        <!-- Date Filter Bar -->
+        <div class="filter-bar glass">
+          <div class="filter-input-wrapper">
+            <i class="fa-solid fa-calendar-days filter-bar-icon"></i>
+            <label for="date-filter">日付選択:</label>
+            <select id="date-filter" class="date-select">
+              <option value="all">すべてのデータ</option>
+            </select>
+          </div>
+          <button id="refresh-gallery-btn" class="icon-btn" aria-label="更新">
+            <i class="fa-solid fa-rotate"></i>
+          </button>
+        </div>
+
+        <!-- Gallery Grid -->
+        <div class="gallery-section">
+          <div id="gallery-grid" class="gallery-grid">
+            <!-- Dynamically populated files -->
+            <div class="gallery-placeholder">
+              <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i>
+              <p>Google Driveからファイル一覧を取得しています...</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </main>
+
+    <!-- Bottom Navigation Bar (Visible only when authenticated) -->
+    <nav id="app-nav" class="app-nav glass" style="display: none;">
+      <button id="nav-capture-btn" class="nav-item active">
+        <i class="fa-solid fa-camera"></i>
+        <span>撮影</span>
+      </button>
+      <button id="nav-history-btn" class="nav-item">
+        <i class="fa-solid fa-images"></i>
+        <span>閲覧</span>
+      </button>
+    </nav>
 
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal">
@@ -191,12 +232,39 @@
           </div>
           
           <div class="app-version">
-            <p>SecPhotos v1.1.0 (Local Queue Edition)</p>
+            <p>SecPhotos v1.2.0 (Gallery Edition)</p>
             <p>※撮影した写真・動画は端末の写真ライブラリ（カメラロール）には保存されず、ブラウザ内の一時保存（IndexedDB）またはメモリから直接Google Driveへアップロードされます。</p>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Fullscreen Media Viewer Modal -->
+    <div id="viewer-modal" class="modal viewer-modal">
+      <div class="viewer-content">
+        <button id="viewer-close-btn" class="icon-btn viewer-close-btn" aria-label="閉じる">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+        
+        <div id="viewer-media-wrapper" class="viewer-media-wrapper">
+          <!-- Dynamically loaded img or video -->
+          <div class="viewer-spinner">
+            <i class="fa-solid fa-spinner fa-spin"></i>
+            <p>データをダウンロード中...</p>
+          </div>
+        </div>
+        
+        <div class="viewer-footer glass">
+          <span id="viewer-filename" class="viewer-filename">ファイル名.jpg</span>
+          <div class="viewer-actions">
+            <a id="viewer-download-link" href="#" class="btn primary-btn compact-btn" download>
+              <i class="fa-solid fa-download"></i> 端末に保存
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Google Identity Services (GIS) Library -->
