@@ -1453,14 +1453,45 @@ async function openMediaViewer(fileId, fileName, mimeType) {
     }
     
     // Create Blob Object URL
-    const blob = await response.blob();
+    let blob = await response.blob();
+    
+    const isHeic = fileName.toLowerCase().endsWith('.heic') || 
+                   fileName.toLowerCase().endsWith('.heif') || 
+                   mimeType === 'image/heic' || 
+                   mimeType === 'image/heif';
+    
+    if (isHeic) {
+      elements.viewerMediaWrapper.innerHTML = `
+        <div class="viewer-spinner">
+          <i class="fa-solid fa-arrows-rotate fa-spin"></i>
+          <p>HEIC画像をJPEGに変換しています...</p>
+        </div>
+      `;
+      
+      if (typeof heic2any !== 'undefined') {
+        try {
+          console.log('Converting HEIC drive file to JPEG for viewing:', fileName);
+          const jpegBlob = await heic2any({
+            blob: blob,
+            toType: 'image/jpeg',
+            quality: 0.8
+          });
+          blob = Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
+        } catch (convErr) {
+          console.error('HEIC to JPEG conversion in viewer failed:', convErr);
+        }
+      } else {
+        console.warn('heic2any library is not loaded. Cannot convert HEIC in viewer.');
+      }
+    }
+    
     const blobUrl = URL.createObjectURL(blob);
     state.currentViewerBlobUrl = blobUrl;
     
     // Render media content
     elements.viewerMediaWrapper.innerHTML = '';
     
-    if (mimeType.startsWith('image/')) {
+    if (mimeType.startsWith('image/') || isHeic) {
       const img = document.createElement('img');
       img.src = blobUrl;
       img.alt = fileName;
@@ -1483,7 +1514,7 @@ async function openMediaViewer(fileId, fileName, mimeType) {
     
     // Configure download link
     elements.viewerDownloadLink.href = blobUrl;
-    elements.viewerDownloadLink.download = fileName;
+    elements.viewerDownloadLink.download = isHeic ? fileName.replace(/\.(heic|heif)$/i, '.jpg') : fileName;
     elements.viewerDownloadLink.style.pointerEvents = 'auto';
     elements.viewerDownloadLink.style.opacity = '1';
     
