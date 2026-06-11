@@ -1146,7 +1146,9 @@ input:checked + .slider:before {
 .viewer-media-wrapper img,
 .viewer-media-wrapper video {
   max-width: 100%;
-  max-height: 62vh;
+  max-height: 48vh; /* Safe fallback */
+  max-height: calc(100vh - 280px);
+  max-height: calc(var(--vh, 1vh) * 100 - 280px);
   object-fit: contain;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);

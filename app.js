@@ -95,8 +95,18 @@ const elements = {
   disconnectBtn: document.getElementById('disconnect-btn')
 };
 
+// Calculate mobile viewport height (fixes iOS Safari 100vh toolbar issues)
+function adjustViewportHeight() {
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
+
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
+  adjustViewportHeight();
+  window.addEventListener('resize', adjustViewportHeight);
+  window.addEventListener('orientationchange', adjustViewportHeight);
+  
   initDB().then(() => {
     initUI();
     setupEventListeners();
