@@ -106,6 +106,22 @@
           </div>
         </div>
 
+        <!-- Preset Tags Selection Panel -->
+        <div class="tags-preset-card glass">
+          <div class="tags-preset-header">
+            <span class="tags-preset-title"><i class="fa-solid fa-tags"></i> 撮影時のタグ設定:</span>
+            <div class="add-tag-form">
+              <input type="text" id="preset-new-tag-input" placeholder="追加...">
+              <button id="preset-add-tag-btn" class="icon-btn-small" aria-label="タグ追加">
+                <i class="fa-solid fa-plus"></i>
+              </button>
+            </div>
+          </div>
+          <div id="preset-tags-container" class="tags-container">
+            <!-- Dynamically populated tags -->
+          </div>
+        </div>
+
         <!-- Queue Action Bar (Visible when files are stored locally in IndexedDB) -->
         <div id="queue-bar" class="queue-bar glass" style="display: none;">
           <div class="queue-info">
@@ -155,14 +171,21 @@
 
       <!-- Tab 2: Gallery/History View -->
       <section id="history-tab-view" class="view tab-content">
-        <!-- Date Filter Bar -->
+        <!-- Date & Tag Filter Bar -->
         <div class="filter-bar glass">
-          <div class="filter-input-wrapper">
-            <i class="fa-solid fa-calendar-days filter-bar-icon"></i>
-            <label for="date-filter">日付選択:</label>
-            <select id="date-filter" class="date-select">
-              <option value="all">すべてのデータ</option>
-            </select>
+          <div class="filter-inputs">
+            <div class="filter-input-item">
+              <i class="fa-solid fa-calendar-days filter-bar-icon"></i>
+              <select id="date-filter" class="date-select">
+                <option value="all">すべてのデータ</option>
+              </select>
+            </div>
+            <div class="filter-input-item">
+              <i class="fa-solid fa-tags filter-bar-icon"></i>
+              <select id="tag-filter" class="tag-select">
+                <option value="all">すべてのタグ</option>
+              </select>
+            </div>
           </div>
           <button id="refresh-gallery-btn" class="icon-btn" aria-label="更新">
             <i class="fa-solid fa-rotate"></i>
@@ -256,11 +279,44 @@
         
         <div class="viewer-footer glass">
           <span id="viewer-filename" class="viewer-filename">ファイル名.jpg</span>
+          
+          <!-- Tags Display & Edit Section -->
+          <div class="viewer-tags-section">
+            <div id="viewer-tags-container" class="tags-container small-tags">
+              <!-- Dynamically populated tags -->
+            </div>
+            <button id="viewer-edit-tags-btn" class="btn text-btn compact-btn">
+              <i class="fa-solid fa-pen-to-square"></i> タグ編集
+            </button>
+          </div>
+          
           <div class="viewer-actions">
             <a id="viewer-download-link" href="#" class="btn primary-btn compact-btn" download>
               <i class="fa-solid fa-download"></i> 端末に保存
             </a>
           </div>
+        </div>
+
+        <!-- Inline Tag Editor Overlay -->
+        <div id="viewer-tag-editor" class="viewer-tag-editor glass" style="display: none;">
+          <div class="editor-header">
+            <h3>タグを編集</h3>
+            <button id="editor-close-btn" class="icon-btn-small" aria-label="閉じる">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div id="editor-tags-list" class="tags-container">
+            <!-- Available tags with checkboxes -->
+          </div>
+          <div class="editor-add-form">
+            <input type="text" id="editor-new-tag-input" placeholder="新規タグを追加...">
+            <button id="editor-add-tag-btn" class="icon-btn-small" aria-label="タグを追加">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          <button id="editor-save-btn" class="btn primary-btn">
+            <i class="fa-solid fa-check"></i> 変更を保存
+          </button>
         </div>
       </div>
     </div>

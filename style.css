@@ -840,40 +840,49 @@ input:checked + .slider:before {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 10px 14px;
   margin-bottom: 20px;
 }
 
-.filter-input-wrapper {
+.filter-inputs {
   display: flex;
-  align-items: center;
+  flex-direction: row;
   gap: 10px;
   flex: 1;
+  min-width: 0;
+  margin-right: 10px;
+}
+
+.filter-input-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 
 .filter-bar-icon {
   color: var(--primary);
-  font-size: 1.1rem;
+  font-size: 1rem;
+  flex-shrink: 0;
 }
 
-.filter-input-wrapper label {
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.date-select {
-  background: rgba(255, 255, 255, 0.05);
+.date-select, .tag-select {
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--card-border);
   color: var(--text-primary);
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 6px 8px;
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   outline: none;
-  max-width: 160px;
+  width: 100%;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
-.date-select option {
+.date-select option, .tag-select option {
   background-color: var(--bg-color);
   color: var(--text-primary);
 }
@@ -971,6 +980,132 @@ input:checked + .slider:before {
   pointer-events: none;
 }
 
+/* Tags Preset Selector Card */
+.tags-preset-card {
+  padding: 15px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
+
+.tags-preset-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.tags-preset-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.add-tag-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 2px 6px;
+  width: 110px;
+}
+
+.add-tag-form input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.75rem;
+  width: 100%;
+  padding: 4px 2px;
+}
+
+.icon-btn-small {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.icon-btn-small:active {
+  background: rgba(255,255,255,0.1);
+  color: var(--text-primary);
+}
+
+.tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  user-select: none;
+}
+
+.tag-pill:active {
+  transform: scale(0.96);
+}
+
+.tag-pill.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
+}
+
+/* Gallery Card Tag Badges */
+.gallery-card-tags-overlay {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 90%;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.tag-badge {
+  background: rgba(11, 15, 25, 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--primary);
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
 /* Fullscreen Media Viewer Modal */
 .viewer-modal {
   background: rgba(0, 0, 0, 0.95);
@@ -1011,7 +1146,7 @@ input:checked + .slider:before {
 .viewer-media-wrapper img,
 .viewer-media-wrapper video {
   max-width: 100%;
-  max-height: 70vh;
+  max-height: 62vh;
   object-fit: contain;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
@@ -1031,17 +1166,17 @@ input:checked + .slider:before {
 }
 
 .viewer-footer {
-  padding: 20px 20px calc(var(--safe-bottom) + 20px);
+  padding: 15px 20px calc(var(--safe-bottom) + 15px);
   border-radius: 20px 20px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
   background: rgba(255, 255, 255, 0.02);
   border-top: 1px solid var(--card-border);
 }
 
 .viewer-filename {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-primary);
   text-align: center;
@@ -1052,4 +1187,112 @@ input:checked + .slider:before {
   display: flex;
   justify-content: center;
 }
+
+/* Fullscreen Viewer Tags Section */
+.viewer-tags-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin: 4px 0;
+}
+
+.small-tags {
+  flex: 1;
+}
+
+.small-tags .tag-pill {
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.05);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Inline Tag Editor in Viewer Modal */
+.viewer-tag-editor {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  border-radius: 24px 24px 0 0;
+  padding: 25px 20px calc(var(--safe-bottom) + 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: rgba(15, 23, 42, 0.98);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border-top: 1px solid var(--card-border);
+  z-index: 120;
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.8);
+}
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.editor-header h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.editor-add-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.editor-add-form input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.editor-add-form input:focus {
+  border-color: var(--primary);
+}
+
+/* Checkbox styled tag-pill in editor */
+.editor-tag-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  user-select: none;
+}
+
+.editor-tag-checkbox-label input {
+  display: none;
+}
+
+.editor-tag-checkbox-label.checked {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 

@@ -11,7 +11,10 @@ let state = {
   queueMode: localStorage.getItem('secphotos_queue_mode') === 'true',
   tokenClient: null,
   driveFiles: [],
-  currentViewerBlobUrl: null
+  currentViewerBlobUrl: null,
+  currentViewerFile: null,
+  availableTags: JSON.parse(localStorage.getItem('secphotos_available_tags')) || ['野球', '酒'],
+  presetSelectedTags: []
 };
 
 // Global DB instance
@@ -50,6 +53,7 @@ const elements = {
   navHistoryBtn: document.getElementById('nav-history-btn'),
   
   dateFilter: document.getElementById('date-filter'),
+  tagFilter: document.getElementById('tag-filter'),
   refreshGalleryBtn: document.getElementById('refresh-gallery-btn'),
   galleryGrid: document.getElementById('gallery-grid'),
   
@@ -58,6 +62,19 @@ const elements = {
   viewerMediaWrapper: document.getElementById('viewer-media-wrapper'),
   viewerFilename: document.getElementById('viewer-filename'),
   viewerDownloadLink: document.getElementById('viewer-download-link'),
+  viewerTagsContainer: document.getElementById('viewer-tags-container'),
+  viewerEditTagsBtn: document.getElementById('viewer-edit-tags-btn'),
+  
+  viewerTagEditor: document.getElementById('viewer-tag-editor'),
+  editorCloseBtn: document.getElementById('editor-close-btn'),
+  editorTagsList: document.getElementById('editor-tags-list'),
+  editorNewTagInput: document.getElementById('editor-new-tag-input'),
+  editorAddTagBtn: document.getElementById('editor-add-tag-btn'),
+  editorSaveBtn: document.getElementById('editor-save-btn'),
+  
+  presetNewTagInput: document.getElementById('preset-new-tag-input'),
+  presetAddTagBtn: document.getElementById('preset-add-tag-btn'),
+  presetTagsContainer: document.getElementById('preset-tags-container'),
   
   settingsToggleBtn: document.getElementById('settings-toggle-btn'),
   settingsModal: document.getElementById('settings-modal'),
@@ -167,10 +184,25 @@ function setupEventListeners() {
 
   // Gallery interactions
   elements.refreshGalleryBtn.addEventListener('click', loadGallery);
-  elements.dateFilter.addEventListener('change', handleDateFilterChange);
+  elements.dateFilter.addEventListener('change', handleFilterChange);
+  elements.tagFilter.addEventListener('change', handleFilterChange);
 
   // Viewer modal interactions
   elements.viewerCloseBtn.addEventListener('click', closeMediaViewer);
+  elements.viewerEditTagsBtn.addEventListener('click', openTagEditor);
+  elements.editorCloseBtn.addEventListener('click', closeTagEditor);
+  elements.editorAddTagBtn.addEventListener('click', handleAddEditorTag);
+  elements.editorNewTagInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleAddEditorTag();
+  });
+  elements.editorSaveBtn.addEventListener('click', handleSaveEditorTags);
+
+  // Preset tag interactions
+  elements.presetAddTagBtn.addEventListener('click', handleAddPresetTag);
+  elements.presetNewTagInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleAddPresetTag();
+  });
+
   window.addEventListener('click', (e) => {
     if (e.target === elements.viewerModal) {
       closeMediaViewer();
@@ -212,6 +244,9 @@ function initUI() {
     verifyFolderAndStart();
     loadPendingIntoUI();
   }
+  
+  // Render tag preset panel
+  initTagsUI();
 }
 
 // Utility to switch active views
@@ -557,11 +592,11 @@ async function queueUpload(file) {
   
   // 2. Save to database first for data protection
   try {
-    await saveFileToQueue(itemId, file, customFileName);
+    const tagsString = state.presetSelectedTags.join(',');
+    await saveFileToQueue(itemId, file, customFileName, tagsString);
     await updateQueueBar();
   } catch (dbErr) {
     console.error('Failed to write to IndexedDB:', dbErr);
-    // Continue upload even if DB write fails, but warn
   }
   
   // 3. Process Upload (unless Queue Mode is active)
@@ -584,11 +619,12 @@ async function queueUpload(file) {
     
     // Choose upload strategy: Multipart (for small files < 5MB) or Resumable (for larger files like videos)
     const threshold = 5 * 1024 * 1024;
+    const tagsString = state.presetSelectedTags.join(',');
     
     if (file.size < threshold) {
-      await uploadMultipart(file, customFileName, itemId);
+      await uploadMultipart(file, customFileName, itemId, tagsString);
     } else {
-      await uploadResumable(file, customFileName, itemId);
+      await uploadResumable(file, customFileName, itemId, tagsString);
     }
     
     // Success: remove from local DB cache
@@ -638,13 +674,17 @@ function updateItemProgress(itemId, percent) {
 }
 
 // 1. Multipart Upload Protocol (Single request for metadata + data)
-async function uploadMultipart(file, fileName, itemId) {
+async function uploadMultipart(file, fileName, itemId, tagsString = '') {
   const boundary = 'secphotos_multipart_boundary';
   
   const metadata = {
     name: fileName,
     parents: [state.folderId]
   };
+  
+  if (tagsString) {
+    metadata.appProperties = { tags: tagsString };
+  }
   
   // Construct the multipart body
   const metadataBlob = new Blob([JSON.stringify(metadata)], { type: 'application/json; charset=UTF-8' });
@@ -693,12 +733,16 @@ async function uploadMultipart(file, fileName, itemId) {
 }
 
 // 2. Resumable Upload Protocol (Initiate, then upload file data chunk / stream)
-async function uploadResumable(file, fileName, itemId) {
+async function uploadResumable(file, fileName, itemId, tagsString = '') {
   // Step A: Initiate the Resumable session
   const metadata = {
     name: fileName,
     parents: [state.folderId]
   };
+  
+  if (tagsString) {
+    metadata.appProperties = { tags: tagsString };
+  }
   
   const initiateRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
     method: 'POST',
@@ -787,7 +831,7 @@ function initDB() {
 }
 
 // Save captured File to local queue
-function saveFileToQueue(id, file, name) {
+function saveFileToQueue(id, file, name, tags = '') {
   return new Promise((resolve, reject) => {
     if (!db) {
       reject(new Error('Database not initialized'));
@@ -803,6 +847,7 @@ function saveFileToQueue(id, file, name) {
       name: name,
       type: file.type,
       size: file.size,
+      tags: tags,
       createdAt: Date.now()
     };
     
@@ -1017,9 +1062,9 @@ async function uploadAllPending() {
         const threshold = 5 * 1024 * 1024;
         
         if (item.size < threshold) {
-          await uploadMultipart(item.file, item.name, item.id);
+          await uploadMultipart(item.file, item.name, item.id, item.tags || '');
         } else {
-          await uploadResumable(item.file, item.name, item.id);
+          await uploadResumable(item.file, item.name, item.id, item.tags || '');
         }
         
         // Remove from DB on success
@@ -1080,11 +1125,11 @@ async function loadGallery() {
     const files = await fetchDriveFiles();
     state.driveFiles = files;
     
-    // Build date filters
-    populateDateFilters(files);
+    // Build date & tag filters
+    populateFilters(files);
     
     // Render files in Grid
-    renderGalleryGrid('all');
+    renderGalleryGrid('all', 'all');
     
   } catch (error) {
     console.error('Failed to load gallery:', error);
@@ -1101,7 +1146,7 @@ async function loadGallery() {
 // Fetch file metadata from Google Drive folder
 async function fetchDriveFiles() {
   const query = `'${state.folderId}' in parents and trashed = false`;
-  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name desc&pageSize=200&fields=files(id,name,mimeType,thumbnailLink,webContentLink,createdTime,size)`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name desc&pageSize=200&fields=files(id,name,mimeType,thumbnailLink,webContentLink,createdTime,size,appProperties)`;
   
   const response = await fetch(url, {
     headers: { 'Authorization': `Bearer ${state.accessToken}` }
@@ -1120,47 +1165,72 @@ async function fetchDriveFiles() {
   return data.files || [];
 }
 
-// Extract unique dates and populate filter dropdown
-function populateDateFilters(files) {
-  // Clear existing options (except 'all')
+// Extract unique dates and tags, populating both dropdown filters
+function populateFilters(files) {
+  // Save current values to restore them after populate
+  const currentDateFilterVal = elements.dateFilter.value;
+  const currentTagFilterVal = elements.tagFilter.value;
+  
+  // Clear select elements
   elements.dateFilter.innerHTML = '<option value="all">すべてのデータ</option>';
+  elements.tagFilter.innerHTML = '<option value="all">すべてのタグ</option>';
   
   const dates = new Set();
+  const tags = new Set();
+  
   files.forEach(file => {
     if (file.createdTime) {
       dates.add(getLocalDateString(file.createdTime));
     }
+    if (file.appProperties && file.appProperties.tags) {
+      file.appProperties.tags.split(',').forEach(tag => {
+        if (tag) tags.add(tag);
+      });
+    }
   });
   
-  // Sort dates descending (newest first)
+  // Populate dates dropdown (newest first)
   const sortedDates = Array.from(dates).sort((a, b) => b.localeCompare(a));
-  
   sortedDates.forEach(date => {
     const option = document.createElement('option');
     option.value = date;
-    
-    // Format date string for display (e.g. 2026年06月11日)
     const parts = date.split('/');
     option.textContent = `${parts[0]}年${parts[1]}月${parts[2]}日`;
-    
     elements.dateFilter.appendChild(option);
   });
-}
-
-// Listen to date dropdown changes and refresh grid view
-function handleDateFilterChange(event) {
-  const selectedDate = event.target.value;
-  renderGalleryGrid(selectedDate);
+  
+  // Populate tags dropdown (alphabetical sort)
+  const sortedTags = Array.from(tags).sort();
+  sortedTags.forEach(tag => {
+    const option = document.createElement('option');
+    option.value = tag;
+    option.textContent = tag;
+    elements.tagFilter.appendChild(option);
+  });
+  
+  // Restore selections if they still exist, otherwise default to 'all'
+  if (Array.from(elements.dateFilter.options).some(opt => opt.value === currentDateFilterVal)) {
+    elements.dateFilter.value = currentDateFilterVal;
+  }
+  if (Array.from(elements.tagFilter.options).some(opt => opt.value === currentTagFilterVal)) {
+    elements.tagFilter.value = currentTagFilterVal;
+  }
 }
 
 // Render filtered files list into the gallery grid
-function renderGalleryGrid(dateFilterValue) {
+function renderGalleryGrid(dateFilterValue = 'all', tagFilterValue = 'all') {
   elements.galleryGrid.innerHTML = '';
   
-  // Filter files
+  // Filter files by date AND tag
   const filteredFiles = state.driveFiles.filter(file => {
-    if (dateFilterValue === 'all') return true;
-    return getLocalDateString(file.createdTime) === dateFilterValue;
+    const matchDate = (dateFilterValue === 'all') || (getLocalDateString(file.createdTime) === dateFilterValue);
+    
+    let matchTag = (tagFilterValue === 'all');
+    if (!matchTag && file.appProperties && file.appProperties.tags) {
+      matchTag = file.appProperties.tags.split(',').includes(tagFilterValue);
+    }
+    
+    return matchDate && matchTag;
   });
   
   if (filteredFiles.length === 0) {
@@ -1183,7 +1253,6 @@ function renderGalleryGrid(dateFilterValue) {
     
     // Google Drive's thumbnailLink usually works directly (publicly authenticated URL)
     if (file.thumbnailLink) {
-      // Modify size of thumbnail link if desired (Google default scale parameters)
       const thumbnailSrc = file.thumbnailLink;
       
       const img = document.createElement('img');
@@ -1209,6 +1278,22 @@ function renderGalleryGrid(dateFilterValue) {
       videoIcon.className = 'video-overlay-icon';
       videoIcon.innerHTML = '<i class="fa-solid fa-play"></i>';
       card.appendChild(videoIcon);
+    }
+    
+    // Add tag badges overlay on top of thumbnails
+    if (file.appProperties && file.appProperties.tags) {
+      const tagsOverlay = document.createElement('div');
+      tagsOverlay.className = 'gallery-card-tags-overlay';
+      
+      file.appProperties.tags.split(',').forEach(tag => {
+        if (tag) {
+          const badge = document.createElement('span');
+          badge.className = 'tag-badge';
+          badge.textContent = tag;
+          tagsOverlay.appendChild(badge);
+        }
+      });
+      card.appendChild(tagsOverlay);
     }
     
     elements.galleryGrid.appendChild(card);
@@ -1237,6 +1322,9 @@ function createCardFallback(fileName, isVideo) {
 
 // Open Fullscreen Viewer and load full media file
 async function openMediaViewer(fileId, fileName, mimeType) {
+  // Find file object
+  state.currentViewerFile = state.driveFiles.find(f => f.id === fileId);
+  
   // Show modal and start loading spinner
   elements.viewerModal.classList.add('active');
   elements.viewerFilename.textContent = fileName;
@@ -1247,6 +1335,9 @@ async function openMediaViewer(fileId, fileName, mimeType) {
       <p>高画質データを読み込んでいます...</p>
     </div>
   `;
+  
+  // Render applied tags
+  renderViewerTags();
   
   // Reset download button
   elements.viewerDownloadLink.removeAttribute('href');
@@ -1318,6 +1409,7 @@ async function openMediaViewer(fileId, fileName, mimeType) {
 // Close viewer and clean up Blob URL to prevent memory leaks
 function closeMediaViewer() {
   elements.viewerModal.classList.remove('active');
+  closeTagEditor();
   
   // Pause any video playing inside viewer
   const video = elements.viewerMediaWrapper.querySelector('video');
@@ -1326,10 +1418,240 @@ function closeMediaViewer() {
   }
   
   elements.viewerMediaWrapper.innerHTML = '';
+  state.currentViewerFile = null;
   
   // Revoke Blob URL to free up browser memory
   if (state.currentViewerBlobUrl) {
     URL.revokeObjectURL(state.currentViewerBlobUrl);
     state.currentViewerBlobUrl = null;
+  }
+}
+
+// ==========================================
+// Tag Management & UI Logic
+// ==========================================
+
+// Render Preset selection pills in Capture tab
+function initTagsUI() {
+  elements.presetTagsContainer.innerHTML = '';
+  
+  state.availableTags.forEach(tag => {
+    const pill = document.createElement('div');
+    const isActive = state.presetSelectedTags.includes(tag);
+    pill.className = `tag-pill ${isActive ? 'active' : ''}`;
+    pill.textContent = tag;
+    
+    pill.addEventListener('click', () => {
+      if (state.presetSelectedTags.includes(tag)) {
+        state.presetSelectedTags = state.presetSelectedTags.filter(t => t !== tag);
+      } else {
+        state.presetSelectedTags.push(tag);
+      }
+      initTagsUI();
+    });
+    
+    elements.presetTagsContainer.appendChild(pill);
+  });
+}
+
+// Add custom tag from preset input form
+function handleAddPresetTag() {
+  const newTag = elements.presetNewTagInput.value.trim();
+  if (!newTag) return;
+  
+  if (state.availableTags.includes(newTag)) {
+    alert('そのタグは既に存在します。');
+    return;
+  }
+  
+  state.availableTags.push(newTag);
+  localStorage.setItem('secphotos_available_tags', JSON.stringify(state.availableTags));
+  
+  // Automatically select the newly created tag
+  state.presetSelectedTags.push(newTag);
+  
+  elements.presetNewTagInput.value = '';
+  initTagsUI();
+}
+
+// Combined Date & Tag Filters change handler
+function handleFilterChange() {
+  const dateVal = elements.dateFilter.value;
+  const tagVal = elements.tagFilter.value;
+  renderGalleryGrid(dateVal, tagVal);
+}
+
+// Render viewer tags in media viewer footer
+function renderViewerTags() {
+  elements.viewerTagsContainer.innerHTML = '';
+  
+  const file = state.currentViewerFile;
+  if (!file) return;
+  
+  const tagsString = file.appProperties ? file.appProperties.tags : '';
+  if (!tagsString) {
+    elements.viewerTagsContainer.innerHTML = '<span style="color: var(--text-secondary); font-size: 0.72rem;">タグなし</span>';
+    return;
+  }
+  
+  tagsString.split(',').forEach(tag => {
+    if (tag) {
+      const pill = document.createElement('div');
+      pill.className = 'tag-pill';
+      pill.textContent = tag;
+      elements.viewerTagsContainer.appendChild(pill);
+    }
+  });
+}
+
+// Open tag editor panel
+function openTagEditor() {
+  elements.editorTagsList.innerHTML = '';
+  elements.viewerTagEditor.style.display = 'flex';
+  
+  const file = state.currentViewerFile;
+  const activeTags = file && file.appProperties && file.appProperties.tags 
+    ? file.appProperties.tags.split(',') 
+    : [];
+    
+  state.availableTags.forEach(tag => {
+    const isChecked = activeTags.includes(tag);
+    
+    const label = document.createElement('label');
+    label.className = `editor-tag-checkbox-label ${isChecked ? 'checked' : ''}`;
+    
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = tag;
+    checkbox.checked = isChecked;
+    
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) {
+        label.classList.add('checked');
+      } else {
+        label.classList.remove('checked');
+      }
+    });
+    
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(tag));
+    
+    elements.editorTagsList.appendChild(label);
+  });
+}
+
+// Close tag editor panel
+function closeTagEditor() {
+  elements.viewerTagEditor.style.display = 'none';
+  elements.editorNewTagInput.value = '';
+}
+
+// Add tag inside the editor list
+function handleAddEditorTag() {
+  const newTag = elements.editorNewTagInput.value.trim();
+  if (!newTag) return;
+  
+  if (state.availableTags.includes(newTag)) {
+    alert('そのタグは既に存在します。');
+    return;
+  }
+  
+  state.availableTags.push(newTag);
+  localStorage.setItem('secphotos_available_tags', JSON.stringify(state.availableTags));
+  
+  // Re-render tag editor with the new tag checked
+  const label = document.createElement('label');
+  label.className = 'editor-tag-checkbox-label checked';
+  
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.value = newTag;
+  checkbox.checked = true;
+  
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) {
+      label.classList.add('checked');
+    } else {
+      label.classList.remove('checked');
+    }
+  });
+  
+  label.appendChild(checkbox);
+  label.appendChild(document.createTextNode(newTag));
+  
+  elements.editorTagsList.appendChild(label);
+  elements.editorNewTagInput.value = '';
+  
+  // Also refresh preset UI so it is available in capture tab
+  initTagsUI();
+}
+
+// Save edited tags on Google Drive API
+async function handleSaveEditorTags() {
+  const file = state.currentViewerFile;
+  if (!file) return;
+  
+  // Collect all checked tags
+  const selected = [];
+  elements.editorTagsList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    if (cb.checked) {
+      selected.push(cb.value);
+    }
+  });
+  
+  const tagsString = selected.join(',');
+  
+  // Update UI to saving state
+  elements.editorSaveBtn.disabled = true;
+  elements.editorSaveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...';
+  
+  try {
+    // Send PATCH request to Google Drive to update metadata properties
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${state.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        appProperties: {
+          tags: tagsString
+        }
+      })
+    });
+    
+    if (res.status === 401) {
+      closeTagEditor();
+      closeMediaViewer();
+      handleUnauthorized();
+      return;
+    }
+    
+    if (!res.ok) {
+      throw new Error(`Google API error: ${res.statusText}`);
+    }
+    
+    // Update local file state
+    if (!file.appProperties) file.appProperties = {};
+    file.appProperties.tags = tagsString;
+    
+    // Update matching entry in state.driveFiles
+    const index = state.driveFiles.findIndex(f => f.id === file.id);
+    if (index !== -1) {
+      state.driveFiles[index] = file;
+    }
+    
+    // Refresh UIs
+    renderViewerTags();
+    populateFilters(state.driveFiles);
+    handleFilterChange();
+    closeTagEditor();
+    
+  } catch (err) {
+    console.error('Failed to update file tags:', err);
+    alert('タグの保存に失敗しました。');
+  } finally {
+    elements.editorSaveBtn.disabled = false;
+    elements.editorSaveBtn.innerHTML = '<i class="fa-solid fa-check"></i> 変更を保存';
   }
 }
