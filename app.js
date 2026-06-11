@@ -13,7 +13,15 @@ let state = {
   driveFiles: [],
   currentViewerBlobUrl: null,
   currentViewerFile: null,
-  availableTags: JSON.parse(localStorage.getItem('secphotos_available_tags')) || ['野球', '酒'],
+  availableTags: (() => {
+    try {
+      const stored = localStorage.getItem('secphotos_available_tags');
+      return stored ? JSON.parse(stored) : ['野球', '酒'];
+    } catch (e) {
+      console.error('Failed to parse stored tags:', e);
+      return ['野球', '酒'];
+    }
+  })(),
   presetSelectedTags: []
 };
 
@@ -62,6 +70,7 @@ const elements = {
   viewerMediaWrapper: document.getElementById('viewer-media-wrapper'),
   viewerFilename: document.getElementById('viewer-filename'),
   viewerDownloadLink: document.getElementById('viewer-download-link'),
+  viewerDeleteBtn: document.getElementById('viewer-delete-btn'),
   viewerTagsContainer: document.getElementById('viewer-tags-container'),
   viewerEditTagsBtn: document.getElementById('viewer-edit-tags-btn'),
   
@@ -189,6 +198,7 @@ function setupEventListeners() {
 
   // Viewer modal interactions
   elements.viewerCloseBtn.addEventListener('click', closeMediaViewer);
+  elements.viewerDeleteBtn.addEventListener('click', handleDeleteFile);
   elements.viewerEditTagsBtn.addEventListener('click', openTagEditor);
   elements.editorCloseBtn.addEventListener('click', closeTagEditor);
   elements.editorAddTagBtn.addEventListener('click', handleAddEditorTag);
@@ -1436,7 +1446,8 @@ function initTagsUI() {
   elements.presetTagsContainer.innerHTML = '';
   
   state.availableTags.forEach(tag => {
-    const pill = document.createElement('div');
+    const pill = document.createElement('button');
+    pill.type = 'button';
     const isActive = state.presetSelectedTags.includes(tag);
     pill.className = `tag-pill ${isActive ? 'active' : ''}`;
     pill.textContent = tag;
@@ -1496,7 +1507,8 @@ function renderViewerTags() {
   
   tagsString.split(',').forEach(tag => {
     if (tag) {
-      const pill = document.createElement('div');
+      const pill = document.createElement('button');
+      pill.type = 'button';
       pill.className = 'tag-pill';
       pill.textContent = tag;
       elements.viewerTagsContainer.appendChild(pill);
@@ -1653,5 +1665,58 @@ async function handleSaveEditorTags() {
   } finally {
     elements.editorSaveBtn.disabled = false;
     elements.editorSaveBtn.innerHTML = '<i class="fa-solid fa-check"></i> 変更を保存';
+  }
+}
+
+// Delete media file from Google Drive
+async function handleDeleteFile() {
+  const file = state.currentViewerFile;
+  if (!file) return;
+  
+  const confirmMsg = file.mimeType.startsWith('video/') 
+    ? 'この動画をGoogle Driveから完全に削除しますか？\n(削除すると元に戻せません)' 
+    : 'この写真をGoogle Driveから完全に削除しますか？\n(削除すると元に戻せません)';
+    
+  if (!confirm(confirmMsg)) {
+    return;
+  }
+  
+  // Update button to loading state
+  elements.viewerDeleteBtn.disabled = true;
+  elements.viewerDeleteBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 削除中...';
+  
+  try {
+    // Send DELETE request to Google Drive API
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${state.accessToken}`
+      }
+    });
+    
+    if (res.status === 401) {
+      closeMediaViewer();
+      handleUnauthorized();
+      return;
+    }
+    
+    if (!res.ok) {
+      throw new Error(`Google API error: ${res.statusText}`);
+    }
+    
+    // Remove from in-memory file array
+    state.driveFiles = state.driveFiles.filter(f => f.id !== file.id);
+    
+    // Close viewer and refresh gallery view
+    closeMediaViewer();
+    populateFilters(state.driveFiles);
+    handleFilterChange();
+    
+  } catch (err) {
+    console.error('Failed to delete file from Google Drive:', err);
+    alert('ファイルの削除に失敗しました。ネットワーク状況を確認してください。');
+  } finally {
+    elements.viewerDeleteBtn.disabled = false;
+    elements.viewerDeleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i> 削除';
   }
 }
