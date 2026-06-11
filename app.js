@@ -1347,6 +1347,7 @@ async function openMediaViewer(fileId, fileName, mimeType) {
   
   // Show modal and start loading spinner
   elements.viewerModal.classList.add('active');
+  elements.appNav.style.display = 'none'; // Hide bottom navigation bar
   elements.viewerFilename.textContent = fileName;
   
   elements.viewerMediaWrapper.innerHTML = `
@@ -1429,6 +1430,7 @@ async function openMediaViewer(fileId, fileName, mimeType) {
 // Close viewer and clean up Blob URL to prevent memory leaks
 function closeMediaViewer() {
   elements.viewerModal.classList.remove('active');
+  elements.appNav.style.display = 'flex'; // Restore bottom navigation bar
   closeTagEditor();
   
   // Pause any video playing inside viewer
