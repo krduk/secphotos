@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>SecPhotos - Camera to Google Drive</title>
+  
+  <!-- Apple Web App Meta Tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SecPhotos">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <i class="fa-solid fa-shield-halved logo-icon"></i>
+        <h1>SecPhotos</h1>
+      </div>
+      <button id="settings-toggle-btn" class="icon-btn" aria-label="設定">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      
+      <!-- Welcome / Setup View (Shown if Client ID is not configured) -->
+      <section id="setup-view" class="view active">
+        <div class="card glass">
+          <div class="card-header">
+            <h2>初期設定</h2>
+            <p>Google Driveに直接写真を保存するため、Google Cloud Consoleで作成した「クライアントID」が必要です。</p>
+          </div>
+          <div class="form-group">
+            <label for="client-id-input">OAuth クライアントID:</label>
+            <input type="text" id="client-id-input" placeholder="xxxxx.apps.googleusercontent.com">
+          </div>
+          <button id="save-setup-btn" class="btn primary-btn">
+            <i class="fa-solid fa-save"></i> クライアントIDを保存
+          </button>
+          
+          <div class="instructions">
+            <h3><i class="fa-solid fa-circle-info"></i> クライアントIDの取得方法</h3>
+            <ol>
+              <li><a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> にアクセスします。</li>
+              <li>プロジェクトを作成または選択します。</li>
+              <li>「OAuth 同意画面」を設定し、スコープに <code>.../auth/drive.file</code> を追加します。</li>
+              <li>「認証情報」から「OAuth 2.0 クライアントID」を作成します（アプリケーションの種類：ウェブ アプリケーション）。</li>
+              <li>「承認された JavaScript 生成元」に、このアプリのURL（例：<code>https://localhost:8000</code> または <code>https://[ローカルIP]:8000</code>）を追加します。</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- Connection View (Shown if Client ID is configured but not connected to Google) -->
+      <section id="connect-view" class="view">
+        <div class="card glass text-center">
+          <div class="hero-icon">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+          </div>
+          <h2>Google Drive に接続</h2>
+          <p>写真を直接Google Driveにアップロードするために、Googleアカウントでサインインしてアクセスを許可してください。</p>
+          
+          <div class="connected-info-box">
+            <p><small>使用するクライアントID: <span id="current-client-id-display"></span></small></p>
+          </div>
+          
+          <button id="connect-btn" class="btn primary-btn large-btn">
+            <i class="fa-brands fa-google"></i> Google Drive に接続
+          </button>
+          
+          <button id="change-client-id-btn" class="btn text-btn">
+            クライアントIDを変更する
+          </button>
+        </div>
+      </section>
+
+      <!-- Capture / Upload View (Main application interface) -->
+      <section id="capture-view" class="view">
+        <!-- Status Bar -->
+        <div class="status-bar glass">
+          <div class="status-item">
+            <span class="status-label">アカウント:</span>
+            <span id="user-email" class="status-value">読み込み中...</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">モード:</span>
+            <span id="upload-mode-display" class="status-value">即時アップロード</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">保存先:</span>
+            <span id="folder-name" class="status-value">SecPhotos</span>
+          </div>
+        </div>
+
+        <!-- Queue Action Bar (Visible when files are stored locally in IndexedDB) -->
+        <div id="queue-bar" class="queue-bar glass" style="display: none;">
+          <div class="queue-info">
+            <i class="fa-solid fa-box-archive queue-icon"></i>
+            <div class="queue-details-text">
+              <span class="queue-title-lbl">一時保存中のファイル</span>
+              <span class="queue-desc-lbl"><span id="queue-count">0</span> 件 (<span id="queue-size">0 KB</span>)</span>
+            </div>
+          </div>
+          <button id="upload-queue-btn" class="btn primary-btn compact-btn">
+            <i class="fa-solid fa-cloud-arrow-up"></i> 一括送信
+          </button>
+        </div>
+
+        <!-- Camera Controls -->
+        <div class="camera-actions">
+          <!-- Real capture inputs (hidden) -->
+          <input type="file" id="photo-capture" accept="image/*" capture="environment" style="display: none;">
+          <input type="file" id="video-capture" accept="video/*" capture="environment" style="display: none;">
+
+          <button id="capture-photo-btn" class="capture-btn photo-btn">
+            <div class="btn-icon-wrapper">
+              <i class="fa-solid fa-camera"></i>
+            </div>
+            <span>写真を撮影</span>
+          </button>
+          
+          <button id="capture-video-btn" class="capture-btn video-btn">
+            <div class="btn-icon-wrapper">
+              <i class="fa-solid fa-video"></i>
+            </div>
+            <span>動画を撮影</span>
+          </button>
+        </div>
+
+        <!-- Upload Status List -->
+        <div class="upload-section">
+          <h3>アップロード状況</h3>
+          <div id="upload-list" class="upload-list">
+            <div class="empty-list-placeholder">
+              <i class="fa-solid fa-images"></i>
+              <p>撮影された写真・動画はここに表示されます</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+      <div class="modal-content glass">
+        <div class="modal-header">
+          <h2>設定</h2>
+          <button id="settings-close-btn" class="icon-btn" aria-label="閉じる">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="settings-client-id">OAuth クライアントID:</label>
+            <input type="text" id="settings-client-id">
+          </div>
+          <div class="form-group">
+            <label for="settings-folder-name">Google Drive フォルダ名:</label>
+            <input type="text" id="settings-folder-name" placeholder="SecPhotos">
+          </div>
+          <div class="form-group toggle-group">
+            <div class="toggle-container">
+              <div class="toggle-text">
+                <span class="toggle-title">ローカル一時保存モード</span>
+                <span class="toggle-subtitle">モバイル回線時の通信量を抑えるため、撮影データを一時保存し、Wi-Fi環境などで手動で一括送信します。</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="settings-queue-mode">
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="button-group">
+            <button id="settings-save-btn" class="btn primary-btn">設定を保存</button>
+            <button id="disconnect-btn" class="btn danger-btn">Google接続解除 (ログアウト)</button>
+          </div>
+          
+          <div class="app-version">
+            <p>SecPhotos v1.1.0 (Local Queue Edition)</p>
+            <p>※撮影した写真・動画は端末の写真ライブラリ（カメラロール）には保存されず、ブラウザ内の一時保存（IndexedDB）またはメモリから直接Google Driveへアップロードされます。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Google Identity Services (GIS) Library -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="app.js"></script>
+</body>
+</html>
