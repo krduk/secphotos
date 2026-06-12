@@ -137,7 +137,7 @@ function initTokenClient() {
   try {
     state.tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: state.clientId,
-      scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+      scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email',
       callback: (tokenResponse) => {
         if (tokenResponse && tokenResponse.access_token) {
           state.accessToken = tokenResponse.access_token;
