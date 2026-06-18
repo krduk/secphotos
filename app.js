@@ -11,6 +11,7 @@ let state = {
   queueMode: localStorage.getItem('secphotos_queue_mode') === 'true',
   tokenClient: null,
   driveFiles: [],
+  filteredFiles: [],
   currentViewerBlobUrl: null,
   currentViewerFile: null,
   availableTags: (() => {
@@ -22,7 +23,9 @@ let state = {
       return ['野球', '酒'];
     }
   })(),
-  presetSelectedTags: []
+  presetSelectedTags: [],
+  selectModeActive: false,
+  selectedFileIds: []
 };
 
 // Global DB instance
@@ -59,6 +62,12 @@ const elements = {
   appNav: document.getElementById('app-nav'),
   navCaptureBtn: document.getElementById('nav-capture-btn'),
   navHistoryBtn: document.getElementById('nav-history-btn'),
+  
+  toggleSelectModeBtn: document.getElementById('toggle-select-mode-btn'),
+  selectionActionBar: document.getElementById('selection-action-bar'),
+  selectedCount: document.getElementById('selected-count'),
+  downloadSelectedBtn: document.getElementById('download-selected-btn'),
+  cancelSelectionBtn: document.getElementById('cancel-selection-btn'),
   
   dateFilter: document.getElementById('date-filter'),
   tagFilter: document.getElementById('tag-filter'),
@@ -223,6 +232,59 @@ function setupEventListeners() {
     if (e.key === 'Enter') handleAddPresetTag();
   });
 
+  // Multi-select gallery mode
+  if (elements.toggleSelectModeBtn) {
+    elements.toggleSelectModeBtn.addEventListener('click', () => toggleSelectMode());
+  }
+  if (elements.downloadSelectedBtn) {
+    elements.downloadSelectedBtn.addEventListener('click', downloadSelectedFiles);
+  }
+  if (elements.cancelSelectionBtn) {
+    elements.cancelSelectionBtn.addEventListener('click', () => toggleSelectMode(false));
+  }
+
+  // Swiping gestures in Viewer Modal
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchEndX = 0;
+  let touchEndY = 0;
+
+  elements.viewerMediaWrapper.addEventListener('touchstart', (e) => {
+    if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO') return;
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+  }, { passive: true });
+
+  elements.viewerMediaWrapper.addEventListener('touchend', (e) => {
+    if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO') return;
+    touchEndX = e.changedTouches[0].screenX;
+    touchEndY = e.changedTouches[0].screenY;
+    
+    const diffX = touchEndX - touchStartX;
+    const diffY = touchEndY - touchStartY;
+    
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+      if (diffX > 0) {
+        showPreviousPhoto();
+      } else {
+        showNextPhoto();
+      }
+    }
+  }, { passive: true });
+
+  // Key navigation for desktop testing
+  window.addEventListener('keydown', (e) => {
+    if (elements.viewerModal.classList.contains('active')) {
+      if (e.key === 'ArrowLeft') {
+        showPreviousPhoto();
+      } else if (e.key === 'ArrowRight') {
+        showNextPhoto();
+      } else if (e.key === 'Escape') {
+        closeMediaViewer();
+      }
+    }
+  });
+
   window.addEventListener('click', (e) => {
     if (e.target === elements.viewerModal) {
       closeMediaViewer();
@@ -232,6 +294,11 @@ function setupEventListeners() {
 
 // Tab Switching
 function switchTab(tab) {
+  closeMediaViewer();
+  toggleSelectMode(false);
+  if (elements.settingsModal) {
+    elements.settingsModal.classList.remove('active');
+  }
   if (tab === 'capture') {
     elements.navCaptureBtn.classList.add('active');
     elements.navHistoryBtn.classList.remove('active');
@@ -1324,6 +1391,8 @@ function renderGalleryGrid(dateFilterValue = 'all', tagFilterValue = 'all') {
     return matchDate && matchTag;
   });
   
+  state.filteredFiles = filteredFiles;
+  
   if (filteredFiles.length === 0) {
     elements.galleryGrid.innerHTML = `
       <div class="gallery-placeholder">
@@ -1337,7 +1406,15 @@ function renderGalleryGrid(dateFilterValue = 'all', tagFilterValue = 'all') {
   filteredFiles.forEach(file => {
     const card = document.createElement('div');
     card.className = 'gallery-card glass';
-    card.addEventListener('click', () => openMediaViewer(file.id, file.name, file.mimeType));
+    
+    if (state.selectModeActive) {
+      if (state.selectedFileIds.includes(file.id)) {
+        card.classList.add('selected');
+      }
+      card.addEventListener('click', () => toggleFileSelection(file.id, card));
+    } else {
+      card.addEventListener('click', () => openMediaViewer(file.id, file.name, file.mimeType));
+    }
     
     // Check file type
     const isVideo = file.mimeType.startsWith('video/');
@@ -1418,7 +1495,7 @@ async function openMediaViewer(fileId, fileName, mimeType) {
   
   // Show modal and start loading spinner
   elements.viewerModal.classList.add('active');
-  elements.appNav.style.display = 'none'; // Hide bottom navigation bar
+  // Bottom navigation bar is always displayed
   elements.viewerFilename.textContent = fileName;
   
   elements.viewerMediaWrapper.innerHTML = `
@@ -1532,7 +1609,7 @@ async function openMediaViewer(fileId, fileName, mimeType) {
 // Close viewer and clean up Blob URL to prevent memory leaks
 function closeMediaViewer() {
   elements.viewerModal.classList.remove('active');
-  elements.appNav.style.display = 'flex'; // Restore bottom navigation bar
+  // Bottom navigation bar is always displayed
   closeTagEditor();
   
   // Pause any video playing inside viewer
@@ -1832,5 +1909,180 @@ async function handleDeleteFile() {
   } finally {
     elements.viewerDeleteBtn.disabled = false;
     elements.viewerDeleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i> 削除';
+  }
+}
+
+// Multi-select actions
+function toggleFileSelection(fileId, cardElement) {
+  const index = state.selectedFileIds.indexOf(fileId);
+  if (index === -1) {
+    state.selectedFileIds.push(fileId);
+    cardElement.classList.add('selected');
+  } else {
+    state.selectedFileIds.splice(index, 1);
+    cardElement.classList.remove('selected');
+  }
+  updateSelectionBar();
+}
+
+function toggleSelectMode(active) {
+  if (active === undefined) {
+    state.selectModeActive = !state.selectModeActive;
+  } else {
+    state.selectModeActive = active;
+  }
+  
+  if (state.selectModeActive) {
+    if (elements.toggleSelectModeBtn) elements.toggleSelectModeBtn.classList.add('active');
+    state.selectedFileIds = [];
+    updateSelectionBar();
+    if (elements.selectionActionBar) elements.selectionActionBar.style.display = 'flex';
+  } else {
+    if (elements.toggleSelectModeBtn) elements.toggleSelectModeBtn.classList.remove('active');
+    state.selectedFileIds = [];
+    if (elements.selectionActionBar) elements.selectionActionBar.style.display = 'none';
+  }
+  
+  const dateVal = elements.dateFilter ? elements.dateFilter.value : 'all';
+  const tagVal = elements.tagFilter ? elements.tagFilter.value : 'all';
+  renderGalleryGrid(dateVal, tagVal);
+}
+
+function updateSelectionBar() {
+  const count = state.selectedFileIds.length;
+  if (elements.selectedCount) {
+    elements.selectedCount.textContent = `${count} 件選択中`;
+  }
+  
+  if (elements.downloadSelectedBtn) {
+    if (count === 0) {
+      elements.downloadSelectedBtn.disabled = true;
+      elements.downloadSelectedBtn.style.opacity = '0.5';
+      elements.downloadSelectedBtn.style.pointerEvents = 'none';
+    } else {
+      elements.downloadSelectedBtn.disabled = false;
+      elements.downloadSelectedBtn.style.opacity = '1';
+      elements.downloadSelectedBtn.style.pointerEvents = 'auto';
+    }
+  }
+}
+
+async function downloadSelectedFiles() {
+  const downloadBtn = elements.downloadSelectedBtn;
+  const cancelBtn = elements.cancelSelectionBtn;
+  if (!downloadBtn) return;
+  
+  const originalHtml = downloadBtn.innerHTML;
+  downloadBtn.disabled = true;
+  downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 処理中...';
+  if (cancelBtn) cancelBtn.disabled = true;
+  
+  try {
+    const ids = [...state.selectedFileIds];
+    if (ids.length === 0) return;
+    
+    if (typeof JSZip !== 'undefined') {
+      const zip = new JSZip();
+      
+      for (let i = 0; i < ids.length; i++) {
+        const fileId = ids[i];
+        const fileObj = state.driveFiles.find(f => f.id === fileId);
+        if (!fileObj) continue;
+        
+        downloadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> (${i+1}/${ids.length})`;
+        
+        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${state.accessToken}` }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch file ${fileObj.name}`);
+        }
+        
+        const blob = await response.blob();
+        zip.file(fileObj.name, blob);
+      }
+      
+      downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ZIP作成中...';
+      const content = await zip.generateAsync({ type: 'blob' });
+      
+      const blobUrl = URL.createObjectURL(content);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `secphotos_export_${new Date().toISOString().slice(0, 19).replace(/[-T:]/g, '')}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+      
+    } else {
+      // Fallback: sequential download
+      console.warn('JSZip is not defined, falling back to sequential downloads.');
+      for (let i = 0; i < ids.length; i++) {
+        const fileId = ids[i];
+        const fileObj = state.driveFiles.find(f => f.id === fileId);
+        if (!fileObj) continue;
+        
+        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${state.accessToken}` }
+        });
+        
+        if (!response.ok) continue;
+        
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = fileObj.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
+    }
+    
+    toggleSelectMode(false);
+  } catch (error) {
+    console.error('Failed to download selected files:', error);
+    alert('ダウンロードに失敗しました。');
+  } finally {
+    downloadBtn.disabled = false;
+    downloadBtn.innerHTML = originalHtml;
+    if (cancelBtn) cancelBtn.disabled = false;
+    updateSelectionBar();
+  }
+}
+
+// Viewer slider next/prev photo actions
+function showPreviousPhoto() {
+  const filesList = (state.filteredFiles && state.filteredFiles.length > 0) ? state.filteredFiles : state.driveFiles;
+  if (!state.currentViewerFile || !filesList || filesList.length === 0) return;
+  
+  const currentIndex = filesList.findIndex(f => f.id === state.currentViewerFile.id);
+  if (currentIndex > 0) {
+    const prevFile = filesList[currentIndex - 1];
+    if (state.currentViewerBlobUrl) {
+      URL.revokeObjectURL(state.currentViewerBlobUrl);
+      state.currentViewerBlobUrl = null;
+    }
+    openMediaViewer(prevFile.id, prevFile.name, prevFile.mimeType);
+  }
+}
+
+// Viewer slider next/prev photo actions (next)
+function showNextPhoto() {
+  const filesList = (state.filteredFiles && state.filteredFiles.length > 0) ? state.filteredFiles : state.driveFiles;
+  if (!state.currentViewerFile || !filesList || filesList.length === 0) return;
+  
+  const currentIndex = filesList.findIndex(f => f.id === state.currentViewerFile.id);
+  if (currentIndex !== -1 && currentIndex < filesList.length - 1) {
+    const nextFile = filesList[currentIndex + 1];
+    if (state.currentViewerBlobUrl) {
+      URL.revokeObjectURL(state.currentViewerBlobUrl);
+      state.currentViewerBlobUrl = null;
+    }
+    openMediaViewer(nextFile.id, nextFile.name, nextFile.mimeType);
   }
 }

@@ -189,6 +189,9 @@
               </select>
             </div>
           </div>
+          <button id="toggle-select-mode-btn" class="icon-btn" aria-label="複数選択" style="margin-right: 6px;">
+            <i class="fa-solid fa-list-check"></i>
+          </button>
           <button id="refresh-gallery-btn" class="icon-btn" aria-label="更新">
             <i class="fa-solid fa-rotate"></i>
           </button>
@@ -202,6 +205,22 @@
               <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i>
               <p>Google Driveからファイル一覧を取得しています...</p>
             </div>
+          </div>
+        </div>
+
+        <!-- Multi-select Action Bar (Hidden by default) -->
+        <div id="selection-action-bar" class="selection-action-bar glass" style="display: none;">
+          <div class="selection-info">
+            <i class="fa-solid fa-circle-check"></i>
+            <span id="selected-count">0 件選択中</span>
+          </div>
+          <div class="selection-buttons">
+            <button id="download-selected-btn" class="btn primary-btn compact-btn">
+              <i class="fa-solid fa-file-zipper"></i> ダウンロード
+            </button>
+            <button id="cancel-selection-btn" class="btn text-btn compact-btn">
+              キャンセル
+            </button>
           </div>
         </div>
       </section>
@@ -332,6 +351,8 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <!-- HEIC Image Conversion Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js"></script>
+  <!-- JSZip Library for multi-select download -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="app.js?v=1.3.0"></script>
 </body>
 </html>
